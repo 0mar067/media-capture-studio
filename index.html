@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Media Capture App — Elnabas Eugine</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #f1f5f9; min-height: 100vh; }
+    header { background: #1e293b; padding: 16px 32px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #334155; }
+    header h1 { font-size: 1.3rem; font-weight: 700; color: #38bdf8; }
+    header span { font-size: 0.85rem; color: #94a3b8; }
+    .container { max-width: 900px; margin: 32px auto; padding: 0 20px; }
+    .card { background: #1e293b; border-radius: 16px; padding: 24px; margin-bottom: 24px; border: 1px solid #334155; }
+    h2 { font-size: 1rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; }
+    video, canvas { width: 100%; border-radius: 10px; background: #000; max-height: 340px; object-fit: cover; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+    button { padding: 10px 20px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; font-size: 0.9rem; transition: 0.2s; }
+    .btn-primary { background: #38bdf8; color: #0f172a; }
+    .btn-primary:hover { background: #0ea5e9; }
+    .btn-success { background: #22c55e; color: #fff; }
+    .btn-success:hover { background: #16a34a; }
+    .btn-danger { background: #ef4444; color: #fff; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-purple { background: #a855f7; color: #fff; }
+    .btn-purple:hover { background: #9333ea; }
+    .btn-gray { background: #475569; color: #fff; }
+    .btn-gray:hover { background: #334155; }
+    .status { font-size: 0.85rem; color: #94a3b8; margin-top: 10px; min-height: 20px; }
+    .status.active { color: #22c55e; }
+    .status.recording { color: #ef4444; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 16px; }
+    .gallery img, .gallery video { width: 100%; border-radius: 8px; border: 2px solid #334155; cursor: pointer; transition: 0.2s; }
+    .gallery img:hover, .gallery video:hover { border-color: #38bdf8; }
+    .gallery-item { position: relative; }
+    .gallery-item .label { font-size: 0.7rem; color: #94a3b8; margin-top: 4px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .download-btn { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.7); border: none; border-radius: 4px; color: #fff; padding: 2px 6px; font-size: 0.7rem; cursor: pointer; }
+    .empty { color: #475569; font-style: italic; font-size: 0.9rem; }
+    .badge { display: inline-block; background: #ef4444; color: #fff; border-radius: 9999px; font-size: 0.7rem; padding: 2px 8px; margin-left: 8px; }
+    .tab-row { display: flex; gap: 8px; margin-bottom: 20px; }
+    .tab { padding: 8px 18px; border-radius: 8px; border: 1px solid #334155; background: transparent; color: #94a3b8; cursor: pointer; font-size: 0.85rem; }
+    .tab.active { background: #38bdf8; color: #0f172a; border-color: #38bdf8; font-weight: 700; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>📸 Media Capture Studio</h1>
+  <span>Built by Nyarambe Elnabas Eugine · Software Engineer</span>
+</header>
+
+<div class="container">
+
+  <!-- Camera Section -->
+  <div class="card">
+    <h2>📷 Live Camera</h2>
+    <video id="videoFeed" autoplay muted playsinline></video>
+    <canvas id="snapCanvas" style="display:none;"></canvas>
+    <div class="btn-row">
+      <button class="btn-primary" onclick="startCamera()">▶ Start Camera</button>
+      <button class="btn-gray" onclick="stopCamera()">⏹ Stop Camera</button>
+      <button class="btn-success" onclick="takeSnapshot()">📸 Take Snapshot</button>
+      <button class="btn-danger" id="recBtn" onclick="toggleRecording()">⏺ Start Recording</button>
+      <button class="btn-purple" onclick="switchCamera()">🔄 Switch Camera</button>
+    </div>
+    <div class="status" id="camStatus">Camera not started.</div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tab-row">
+    <button class="tab active" onclick="showTab('snapshots')">📸 Snapshots <span class="badge" id="snapCount">0</span></button>
+    <button class="tab" onclick="showTab('videos')">🎬 Videos <span class="badge" id="vidCount">0</span></button>
+  </div>
+
+  <!-- Snapshots Gallery -->
+  <div class="card" id="snapshots">
+    <h2>📸 Captured Snapshots</h2>
+    <div class="gallery" id="snapshotGallery">
+      <p class="empty">No snapshots yet. Start the camera and click "Take Snapshot".</p>
+    </div>
+  </div>
+
+  <!-- Videos Gallery -->
+  <div class="card" id="videos" style="display:none;">
+    <h2>🎬 Recorded Videos</h2>
+    <div class="gallery" id="videoGallery">
+      <p class="empty">No recordings yet. Start the camera and click "Start Recording".</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let stream = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let isRecording = false;
+let facingMode = 'user';
+let snapCount = 0;
+let vidCount = 0;
+
+function showTab(tab) {
+  document.getElementById('snapshots').style.display = tab === 'snapshots' ? 'block' : 'none';
+  document.getElementById('videos').style.display = tab === 'videos' ? 'block' : 'none';
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', (i===0&&tab==='snapshots')||(i===1&&tab==='videos')));
+}
+
+async function startCamera() {
+  try {
+    if (stream) stopCamera();
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: true });
+    document.getElementById('videoFeed').srcObject = stream;
+    setStatus('camStatus', '🟢 Camera active — ready to capture.', 'active');
+  } catch(e) {
+    setStatus('camStatus', '❌ Could not access camera: ' + e.message, '');
+  }
+}
+
+function stopCamera() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  document.getElementById('videoFeed').srcObject = null;
+  setStatus('camStatus', 'Camera stopped.', '');
+}
+
+function switchCamera() {
+  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  if (stream) startCamera();
+}
+
+function takeSnapshot() {
+  const video = document.getElementById('videoFeed');
+  if (!stream) { setStatus('camStatus','⚠️ Start the camera first.',''); return; }
+  const canvas = document.getElementById('snapCanvas');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const dataUrl = canvas.toDataURL('image/png');
+  const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+  const name = `snapshot_${ts}.png`;
+  addToGallery('snapshotGallery', 'img', dataUrl, name);
+  snapCount++;
+  document.getElementById('snapCount').textContent = snapCount;
+  setStatus('camStatus', `✅ Snapshot saved: ${name}`, 'active');
+}
+
+function toggleRecording() {
+  if (!isRecording) startRecording(); else stopRecording();
+}
+
+function startRecording() {
+  if (!stream) { setStatus('camStatus','⚠️ Start the camera first.',''); return; }
+  recordedChunks = [];
+  const options = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? {mimeType:'video/webm;codecs=vp9'} : {};
+  mediaRecorder = new MediaRecorder(stream, options);
+  mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
+  mediaRecorder.onstop = saveRecording;
+  mediaRecorder.start(100);
+  isRecording = true;
+  document.getElementById('recBtn').textContent = '⏹ Stop Recording';
+  document.getElementById('recBtn').className = 'btn-gray';
+  setStatus('camStatus', '🔴 Recording in progress...', 'recording');
+}
+
+function stopRecording() {
+  if (mediaRecorder) mediaRecorder.stop();
+  isRecording = false;
+  document.getElementById('recBtn').textContent = '⏺ Start Recording';
+  document.getElementById('recBtn').className = 'btn-danger';
+  setStatus('camStatus', '✅ Recording stopped — saving...', 'active');
+}
+
+function saveRecording() {
+  const blob = new Blob(recordedChunks, { type: 'video/webm' });
+  const url = URL.createObjectURL(blob);
+  const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+  const name = `recording_${ts}.webm`;
+  addToGallery('videoGallery', 'video', url, name, blob);
+  vidCount++;
+  document.getElementById('vidCount').textContent = vidCount;
+  setStatus('camStatus', `✅ Video saved: ${name}`, 'active');
+}
+
+function addToGallery(galleryId, type, src, name, blob) {
+  const gallery = document.getElementById(galleryId);
+  const empty = gallery.querySelector('.empty');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = 'gallery-item';
+  const el = document.createElement(type);
+  el.src = src;
+  if (type === 'video') { el.controls = true; el.muted = true; }
+  const dlBtn = document.createElement('button');
+  dlBtn.className = 'download-btn';
+  dlBtn.textContent = '⬇';
+  dlBtn.onclick = () => {
+    const a = document.createElement('a');
+    a.href = blob ? URL.createObjectURL(blob) : src;
+    a.download = name;
+    a.click();
+  };
+  const label = document.createElement('div');
+  label.className = 'label';
+  label.textContent = name;
+  div.appendChild(el);
+  div.appendChild(dlBtn);
+  div.appendChild(label);
+  gallery.insertBefore(div, gallery.firstChild);
+}
+
+function setStatus(id, msg, cls) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status ' + cls;
+}
+</script>
+</body>
+</html>
